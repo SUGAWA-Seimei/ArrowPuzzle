@@ -1,7 +1,9 @@
-# ArrowPuzzle
+# ArrowPuzzle  
 矢印をタップして外してくゲームです。  
-短編のマス数を設定して「新規」ボタンを押すと新しいゲームをスタートできます。
+短編のマス数を設定して「新規」ボタンを押すと新しいゲームをスタートできます。 
+
 [https://sugawa-seimei.github.io/ArrowPuzzle/](https://sugawa-seimei.github.io/ArrowPuzzle/)
+
 ---
 ## 遊び方 
 - 矢印の進行方向に障害物がなければ、タップすると消えます。  
