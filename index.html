@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<title>ArrowPuzzle</title>
+<style>
+body {margin:0;display:'block';}
+canvas { margin:0;display:block; background:#fff; }
+</style>
+</head>
+<body onLoad="loadConf();">
+
+<div id="topbar" style="display: flex;justify-content: space-between;">
+  <span>
+    <button id="newBtn">新規</button>　
+    短辺のマス数<input id="cellCountInput" type="number" value="30" min="3" max="100">
+  </span>
+  <span id="life_left"></span>
+
+</div>
+
+<canvas id="cv"></canvas>
+
+<script>
+const canvas = document.getElementById("cv");
+const ctx = canvas.getContext("2d");
+
+let config = {
+  cellInput: 30,
+};
+
+let grid = [];
+let arrows = [];
+let cellSize = 30;
+let cols = 0;
+let rows = 0;
+let life = 3;
+let last_click = -1;
+let block_path = -1;
+let gameoverSize;
+let cleatSize;
+let state = "idle";
+
+const DIRS = [
+  {dx:1,dy:0}, {dx:0,dy:1},
+  {dx:-1,dy:0},{dx:0,dy:-1}
+];
+
+cellCountInput.value=Math.floor(Math.min(window.innerWidth,window.innerHeight - canvas.getBoundingClientRect().top)/cellSize);
+
+// --- UI ---
+document.getElementById("newBtn").onclick = () => {
+  config.cellInput = parseInt(cellCountInput.value);
+  life = 3;
+  initCanvas();
+  saveConf();
+  generate();
+};
+
+// --- canvas 初期化 ---
+function initCanvas(){
+  const rect = canvas.getBoundingClientRect();
+  const topY = rect.top;
+
+  // 最大化
+  canvas.width = window.innerWidth ;
+  canvas.height = window.innerHeight - topY ;
+
+  // グリッド計算
+  const shortSide = Math.min(canvas.width, canvas.height);
+  cellSize = Math.floor(shortSide / (config.cellInput ));
+
+  const longSide = Math.max(canvas.width, canvas.height);
+  const longCells = Math.floor(longSide / cellSize) ;
+
+  if (canvas.width >= canvas.height) {
+    rows = config.cellInput;
+    cols = longCells;
+    gameoverSize = siz("GAME OVER",1/2);
+    clearSize = siz("Conglaturations!",1/2);
+  } else {
+    cols = config.cellInput;
+    rows = longCells;
+    gameoverSize = siz("GAME OVER",2/3);
+    clearSize = siz("Conglaturations!",4/5);
+  }
+}
+
+function siz(str,r){
+  let p=4;
+  let w=4;
+  while(w<canvas.width*r){
+    p *= 2;
+    ctx.font=p+"px sans-serif";
+    w = ctx.measureText(str).width;
+  }
+  w=0;
+  while(p>1){
+    p /= 2;
+    ctx.font=(w+p)+"px sans-serif";
+    if(ctx.measureText(str).width<=canvas.width*r){
+      w=w+p;
+    }
+  }
+  return w;
+}
+
+window.onresize = () => {
+  if (state !== "idle") {
+    initCanvas();
+    draw();
+  }
+};
+
+// --- 生成 ---
+
+function generate(){
+  grid = [];
+  arrows = [];
+  last_click = -1;
+  block_path = -1;
+
+  for(let y=0;y<rows;y++){
+    grid[y]=[];
+    for(let x=0;x<cols;x++){
+      grid[y][x] = 0;
+    }
+  }
+
+
+  // 矢印生成
+  while(true){
+
+    // 外周開始
+    let starts = [];
+    let rand_length = 0;
+
+    for(let x=0;x<cols;x++){
+      for(let y=0;y<rows;y++){
+        if(grid[y][x]==0){
+          let p = y +1;
+          if(near_space(x,y)==1)p*=3;
+          rand_length += p;
+          starts.push({x, y, dir:3,p});
+          break;
+        }
+      }
+      for(let y=rows-1;y>=0;y--){
+        if(grid[y][x]==0){
+          let p = rows-y;
+          if(near_space(x,y)==1)p*=3;
+          rand_length += p;
+          starts.push({x, y, dir:1,p});
+          break;
+        }
+      }
+    }
+    for(let y=0;y<rows;y++){
+      for(let x=0;x<cols;x++){
+        if(grid[y][x]==0){
+          let p = x+1;
+          if(near_space(x,y)==1)p*=3;
+          rand_length += p;
+          starts.push({x, y, dir:2,p});
+          break;
+        }
+      }
+      for(let x=cols-1;x>=0;x--){
+        if(grid[y][x]==0){
+          let p = cols-x;
+          if(near_space(x,y)==1)p*=3;
+          rand_length += p;
+          starts.push({x, y, dir:0,p});
+          break;
+        }
+      }
+    }
+
+    let start;
+    rand_length *= Math.random();
+    for(let s=0;s<starts.length;s++){
+      rand_length -= starts[s].p;
+      if(rand_length<0){start = starts[s];break;}
+    }
+
+    let x = start.x;
+    let y = start.y;
+    let d = start.dir;
+    let path = [];
+
+    while(true){
+
+      grid[y][x] = 1+arrows.length;
+      path.push({x,y,d});
+
+      // 次候補
+      let candidates = [];
+      for(let dir=0;dir< DIRS.length;dir++){
+        let nx = x + DIRS[dir].dx;
+        let ny = y + DIRS[dir].dy;
+        if(nx>=0 && ny>=0 && nx<cols && ny<rows && !grid[ny][nx]){
+          candidates.push({nx,ny,dir});
+        }
+      }
+
+      // 孤立1マス優先
+      let isolate = candidates.find(c=>{
+        let cnt=0;
+        for(let dir of DIRS){
+          let tx=c.nx+dir.dx;
+          let ty=c.ny+dir.dy;
+          if(tx>=0 && ty>=0 && tx<cols && ty<rows && !grid[ty][tx]) cnt++;
+        }
+        return cnt===0;
+      });
+
+      if(isolate){
+        x = isolate.nx;
+        y = isolate.ny;
+        d = (isolate.dir+2)%DIRS.length;
+      } else if(path.length >= rows || path.length >= cols){
+        if(Math.random()<0.6) break;
+      } else if(candidates.length){
+        let c = candidates[Math.floor(Math.random()*candidates.length)];
+        x = c.nx;
+        y = c.ny;
+        d = (c.dir+2)%DIRS.length;
+      } else break;
+    }
+
+    arrows.push(path);
+
+    // 全埋まったら終了
+    if(grid.flat().every(v=>v)) break;
+  }
+
+  state = "play";
+  draw();
+}
+
+function near_space(x,y){
+  let cnt=0;
+  for(let dir of DIRS){
+    let tx=x+dir.dx;
+    let ty=x+dir.dy;
+    if(tx>=0 && ty>=0 && tx<cols && ty<rows && !grid[ty][tx]) cnt++;   
+  }
+  return cnt;
+}
+
+// --- 描画 ---
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+
+  // 矢印
+  ctx.lineCap = "round";
+  ctx.lineWidth=Math.max(1,cellSize/15);
+  arrows.forEach((path,i)=>{
+    if(!path.length) return;
+    if(i==block_path){
+      ctx.strokeStyle="#F00";
+      ctx.fillStyle="#F00";
+    }else if(i==last_click){
+      ctx.strokeStyle="#888";
+      ctx.fillStyle="#888";
+    }else{
+      ctx.strokeStyle="#000";
+      ctx.fillStyle="#000";
+    }
+    ctx.beginPath();
+    ctx.moveTo(path[0].x*cellSize+cellSize/2, path[0].y*cellSize+cellSize/2);
+    for(let p of path){
+      ctx.lineTo(p.x*cellSize+cellSize/2, p.y*cellSize+cellSize/2);
+    }
+    const lp = path[path.length-1]
+    const ppx = lp.x * cellSize+cellSize/2 - cellSize*0.3 * DIRS[lp.d].dx;
+    const ppy = lp.y * cellSize+cellSize/2 - cellSize*0.3 * DIRS[lp.d].dy;
+    ctx.lineTo(ppx, ppy);
+    ctx.stroke();
+
+    // 矢じり
+    let last = path[0];
+    let cx=last.x*cellSize+cellSize*0.5;
+    let cy=last.y*cellSize+cellSize*0.5;
+    let cd=DIRS[last.d];
+
+    ctx.beginPath();
+    ctx.moveTo(cx + cellSize*0.1 * cd.dx ,cy + cellSize*0.1 * cd.dy);
+    ctx.lineTo(cx,cy);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(cx + cellSize*0.4 * cd.dx ,cy + cellSize*0.4 * cd.dy);
+    ctx.lineTo(cx + cellSize*0.1 * cd.dx + cellSize*0.13 * cd.dy ,cy + cellSize*0.1 * cd.dy + cellSize*0.13 * cd.dx);
+    ctx.lineTo(cx + cellSize*0.1 * cd.dx - cellSize*0.13 * cd.dy ,cy + cellSize*0.1 * cd.dy - cellSize*0.13 * cd.dx);
+    ctx.fill();
+
+  });
+
+  // UI表示
+  //ctx.fillStyle="black";
+  //ctx.fillText(`LIFE: ${life}`, 10, 15);
+  life_left.innerHTML="LIFE:"+"💕".repeat(life);
+
+
+  if(state === "gameover"){
+    ctx.fillStyle="rgba(0,0,0,0.5)";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle="white";
+    ctx.textAlign ="center";
+    ctx.font=gameoverSize+"px sans-serif";
+    ctx.fillText("GAME OVER", canvas.width/2, canvas.height/2);
+  }
+
+  if(state === "clear"){
+    ctx.fillStyle="black";
+    ctx.font=clearSize+"px sans-serif";
+    ctx.textAlign ="center";
+    ctx.fillText("Congratulations!", canvas.width/2, canvas.height/2);
+  }
+}
+
+// --- 判定 ---
+function canRemove(path){
+  let last = path[0];
+  let dd = DIRS[path[0].d];
+  let cx = last.x+dd.dx;
+  let cy = last.y+dd.dy;
+
+  // 他の矢印が同位置にあればNG
+  while(0 <= cx && cx < cols && 0 <= cy && cy < rows){
+    if(grid[cy][cx]){block_path = grid[cy][cx]-1;return false;}
+    cx += dd.dx;
+    cy += dd.dy;
+  }
+  return true;
+}
+
+// --- クリック ---
+canvas.onclick = e=>{
+  if(state !== "play") return;
+
+  let x = Math.floor(e.offsetX / cellSize);
+  let y = Math.floor(e.offsetY / cellSize);
+
+  for(let i=0;i<arrows.length;i++){
+    if(last_click == i)continue;
+    let path = arrows[i];
+    if(path.some(p=>p.x===x && p.y===y)){
+      last_click = i;
+      block_path = -1;
+      if(canRemove(path)){
+        path.forEach(p=>{grid[p.y][p.x]=0;});
+        arrows[i] = []; // 削除
+      }else{
+        life--;
+        if(life<=0){
+          state="gameover";
+        }
+      }
+      break;
+    }
+  }
+
+  // クリア判定
+  if(arrows.every(p=>p.length===0)){
+    state="clear";
+  }
+
+  draw();
+}
+
+//セーブ・ロード
+
+function saveConf(){
+  const conf_json = JSON.stringify(config);
+  localStorage.setItem("scatolo's_arrow_puzzle",conf_json);
+}
+
+function loadConf(){
+  g = localStorage.getItem("scatolo's_arrow_puzzle");
+  if(g==null){
+    config.cellInput = Math.floor(Math.min(window.innerWidth,window.innerHeight - canvas.getBoundingClientRect().top)/30);
+  }else{
+    config = JSON.parse(g);
+  }
+  cellCountInput.value = config.cellInput;
+
+  newBtn.click();
+}
+
+</script>
+</body>
+</html>
