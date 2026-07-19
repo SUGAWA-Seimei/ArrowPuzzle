@@ -4,7 +4,6 @@
 
 [https://sugawa-seimei.github.io/ArrowPuzzle/](https://sugawa-seimei.github.io/ArrowPuzzle/)
 
----
 ## 遊び方 
 - 矢印の進行方向に障害物がなければ、タップすると消えます。  
 - 進行方向に別の矢印があると、その矢印は消せません。
